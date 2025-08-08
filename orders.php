@@ -2,47 +2,47 @@
 require_once '../includes/config.php';
 requireAdmin();
 
-// Handle product deletion
-if (isset($_GET['delete'])) {
-    $product_id = intval($_GET['delete']);
+// Handle order deletion
+if (isset($_GET['delete_id'])) {
+    $order_id = intval($_GET['delete_id']);
     
-    // Check if product exists in any orders
-    $sql = "SELECT COUNT(*) FROM order_items WHERE product_id = ?";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("i", $product_id);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $count = $result->fetch_row()[0];
+    // Start transaction
+    $conn->begin_transaction();
     
-    if ($count > 0) {
-        $_SESSION['error'] = "Cannot delete product as it exists in orders.";
-    } else {
-        // Delete product
-        $sql = "DELETE FROM products WHERE id = ?";
-        $stmt = $conn->prepare($sql);
-        $stmt->bind_param("i", $product_id);
+    try {
+        // First delete order items to maintain referential integrity
+        $delete_items = $conn->prepare("DELETE FROM order_items WHERE order_id = ?");
+        $delete_items->bind_param("i", $order_id);
+        $delete_items->execute();
         
-        if ($stmt->execute()) {
-            $_SESSION['success'] = "Product deleted successfully.";
-        } else {
-            $_SESSION['error'] = "Failed to delete product.";
-        }
+        // Then delete the order
+        $delete_order = $conn->prepare("DELETE FROM orders WHERE id = ?");
+        $delete_order->bind_param("i", $order_id);
+        $delete_order->execute();
+        
+        // Commit transaction
+        $conn->commit();
+        
+        $_SESSION['success'] = "Order #$order_id deleted successfully";
+        header("Location: orders.php");
+        exit();
+    } catch (Exception $e) {
+        // Rollback transaction on error
+        $conn->rollback();
+        $_SESSION['error'] = "Failed to delete order: " . $e->getMessage();
+        header("Location: orders.php");
+        exit();
     }
-    
-    header("Location: products.php");
-    exit();
 }
 
-// Fetch all products with their main images
-$sql = "SELECT id, name, price, stock, image_path FROM products ORDER BY created_at DESC";
-$stmt = $conn->prepare($sql);
-if ($stmt) {
-    $stmt->execute();
-    $products = $stmt->get_result();
-} else {
-    $_SESSION['error'] = "Database error: " . $conn->error;
-    $products = false;
-}
+// Fetch all orders
+$orders = $conn->query("
+    SELECT o.id, u.full_name AS customer, o.created_at AS date, 
+           o.total_amount AS amount, o.status
+    FROM orders o
+    JOIN users u ON o.user_id = u.id
+    ORDER BY o.created_at DESC
+");
 ?>
 
 <!DOCTYPE html>
@@ -50,7 +50,7 @@ if ($stmt) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Manage Products - Admin Panel</title>
+    <title>Manage Orders - Admin Panel</title>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
@@ -215,22 +215,34 @@ if ($stmt) {
             transform: translateX(5px);
         }
         
-        /* Product Image */
-        .product-img {
-            max-width: 80px;
-            max-height: 80px;
-            border-radius: 4px;
-            object-fit: cover;
-            transition: all 0.3s;
+        /* Badges */
+        .badge {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+            color: white;
         }
         
-        .product-img:hover {
-            transform: scale(1.1);
+        .badge-primary {
+            background-color: var(--primary);
         }
         
-        .no-image {
-            color: #999;
-            font-style: italic;
+        .badge-success {
+            background-color: var(--success);
+        }
+        
+        .badge-warning {
+            background-color: var(--warning);
+        }
+        
+        .badge-danger {
+            background-color: var(--danger);
+        }
+        
+        .badge-info {
+            background-color: var(--info);
         }
         
         /* Buttons */
@@ -273,6 +285,11 @@ if ($stmt) {
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }
         
+        .btn-sm {
+            padding: 5px 10px;
+            font-size: 12px;
+        }
+        
         /* Alerts */
         .alert {
             padding: 15px;
@@ -298,6 +315,12 @@ if ($stmt) {
             background-color: rgba(231, 76, 60, 0.2);
             color: var(--danger);
             border-left: 4px solid var(--danger);
+        }
+        
+        .alert-info {
+            background-color: rgba(52, 152, 219, 0.2);
+            color: var(--primary);
+            border-left: 4px solid var(--primary);
         }
         
         /* Animation */
@@ -351,7 +374,7 @@ if ($stmt) {
     <!-- Sidebar Navigation -->
     <div class="sidebar">
         <div class="sidebar-brand">
-            <i class="fas fa-box"></i>
+            <i class="fas fa-shopping-cart"></i>
             <span>Admin Panel</span>
         </div>
         
@@ -363,13 +386,13 @@ if ($stmt) {
                         <span>Dashboard</span>
                     </a>
                 </li>
-                <li class="active">
+                <li>
                     <a href="products.php">
                         <i class="fas fa-box"></i>
                         <span>Products</span>
                     </a>
                 </li>
-                <li>
+                <li class="active">
                     <a href="orders.php">
                         <i class="fas fa-shopping-cart"></i>
                         <span>Orders</span>
@@ -400,18 +423,8 @@ if ($stmt) {
     <!-- Main Content -->
     <div class="main-content animated">
         <div class="header">
-            <h1>Manage Products</h1>
-            <a href="add_product.php" class="btn btn-primary">
-                <i class="fas fa-plus"></i> Add New Product
-            </a>
+            <h1>Manage Orders</h1>
         </div>
-
-        <?php if (isset($_SESSION['error'])): ?>
-            <div class="alert alert-error">
-                <i class="fas fa-exclamation-circle"></i>
-                <?php echo htmlspecialchars($_SESSION['error']); unset($_SESSION['error']); ?>
-            </div>
-        <?php endif; ?>
 
         <?php if (isset($_SESSION['success'])): ?>
             <div class="alert alert-success">
@@ -420,42 +433,55 @@ if ($stmt) {
             </div>
         <?php endif; ?>
 
-        <?php if ($products && $products->num_rows > 0): ?>
+        <?php if (isset($_SESSION['error'])): ?>
+            <div class="alert alert-error">
+                <i class="fas fa-exclamation-circle"></i>
+                <?php echo htmlspecialchars($_SESSION['error']); unset($_SESSION['error']); ?>
+            </div>
+        <?php endif; ?>
+
+        <?php if ($orders->num_rows > 0): ?>
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th>Image</th>
-                        <th>ID</th>
-                        <th>Name</th>
-                        <th>Price</th>
-                        <th>Stock</th>
+                        <th>Order ID</th>
+                        <th>Customer</th>
+                        <th>Date</th>
+                        <th>Amount</th>
+                        <th>Status</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php while ($product = $products->fetch_assoc()): ?>
+                    <?php while ($order = $orders->fetch_assoc()): ?>
                         <tr>
+                            <td>#<?php echo $order['id']; ?></td>
+                            <td><?php echo htmlspecialchars($order['customer']); ?></td>
+                            <td><?php echo date('d M Y H:i', strtotime($order['date'])); ?></td>
+                            <td>₹<?php echo number_format($order['amount'], 2); ?></td>
                             <td>
-                                <?php if (!empty($product['image_path'])): ?>
-                                    <img src="../<?php echo htmlspecialchars($product['image_path']); ?>" 
-                                         class="product-img"
-                                         alt="<?php echo htmlspecialchars($product['name']); ?>">
-                                <?php else: ?>
-                                    <i class="fas fa-image fa-2x" style="color: #ddd;"></i>
-                                <?php endif; ?>
+                                <span class="badge 
+                                    <?php 
+                                    switch($order['status']) {
+                                        case 'Pending': echo 'badge-warning'; break;
+                                        case 'Processing': echo 'badge-info'; break;
+                                        case 'Shipped': echo 'badge-primary'; break;
+                                        case 'Delivered': echo 'badge-success'; break;
+                                        case 'Cancelled': echo 'badge-danger'; break;
+                                        default: echo 'badge-secondary';
+                                    }
+                                    ?>">
+                                    <?php echo $order['status']; ?>
+                                </span>
                             </td>
-                            <td><?php echo htmlspecialchars($product['id']); ?></td>
-                            <td><?php echo htmlspecialchars($product['name']); ?></td>
-                            <td>₹<?php echo number_format($product['price'], 2); ?></td>
-                            <td><?php echo htmlspecialchars($product['stock']); ?></td>
                             <td>
-                                <a href="add_product.php?id=<?php echo htmlspecialchars($product['id']); ?>" 
-                                   class="btn btn-primary">
-                                    <i class="fas fa-edit"></i> Edit
+                                <a href="../view_order.php?id=<?php echo $order['id']; ?>" 
+                                   class="btn btn-primary btn-sm">
+                                    <i class="fas fa-eye"></i> View
                                 </a>
-                                <a href="products.php?delete=<?php echo htmlspecialchars($product['id']); ?>" 
-                                   class="btn btn-danger" 
-                                   onclick="return confirm('Are you sure you want to delete this product?')">
+                                <a href="orders.php?delete_id=<?php echo $order['id']; ?>" 
+                                   class="btn btn-danger btn-sm" 
+                                   onclick="return confirm('Are you sure you want to delete order #<?php echo $order['id']; ?>? This action cannot be undone.');">
                                     <i class="fas fa-trash"></i> Delete
                                 </a>
                             </td>
@@ -463,13 +489,9 @@ if ($stmt) {
                     <?php endwhile; ?>
                 </tbody>
             </table>
-        <?php elseif ($products && $products->num_rows === 0): ?>
-            <div class="alert alert-info">
-                <i class="fas fa-info-circle"></i> No products found.
-            </div>
         <?php else: ?>
-            <div class="alert alert-error">
-                <i class="fas fa-exclamation-circle"></i> Error loading products. Please try again later.
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle"></i> No orders found.
             </div>
         <?php endif; ?>
     </div>
@@ -504,7 +526,7 @@ if ($stmt) {
             const deleteButtons = document.querySelectorAll('[onclick*="confirm"]');
             deleteButtons.forEach(button => {
                 button.addEventListener('click', function(e) {
-                    if (!confirm('Are you sure you want to delete this product?')) {
+                    if (!confirm(this.getAttribute('data-confirm') || 'Are you sure?')) {
                         e.preventDefault();
                     }
                 });

@@ -2,47 +2,51 @@
 require_once '../includes/config.php';
 requireAdmin();
 
-// Handle product deletion
+// Handle user deletion
 if (isset($_GET['delete'])) {
-    $product_id = intval($_GET['delete']);
+    $user_id = intval($_GET['delete']);
     
-    // Check if product exists in any orders
-    $sql = "SELECT COUNT(*) FROM order_items WHERE product_id = ?";
+    // Check if user is admin or has orders
+    $sql = "SELECT is_admin FROM users WHERE id = ?";
     $stmt = $conn->prepare($sql);
-    $stmt->bind_param("i", $product_id);
+    $stmt->bind_param("i", $user_id);
     $stmt->execute();
     $result = $stmt->get_result();
-    $count = $result->fetch_row()[0];
+    $user = $result->fetch_assoc();
     
-    if ($count > 0) {
-        $_SESSION['error'] = "Cannot delete product as it exists in orders.";
+    if ($user['is_admin']) {
+        $_SESSION['error'] = "Cannot delete admin user.";
     } else {
-        // Delete product
-        $sql = "DELETE FROM products WHERE id = ?";
+        // Check if user has orders
+        $sql = "SELECT COUNT(*) FROM orders WHERE user_id = ?";
         $stmt = $conn->prepare($sql);
-        $stmt->bind_param("i", $product_id);
+        $stmt->bind_param("i", $user_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $order_count = $result->fetch_row()[0];
         
-        if ($stmt->execute()) {
-            $_SESSION['success'] = "Product deleted successfully.";
+        if ($order_count > 0) {
+            $_SESSION['error'] = "Cannot delete user with existing orders.";
         } else {
-            $_SESSION['error'] = "Failed to delete product.";
+            // Delete user
+            $sql = "DELETE FROM users WHERE id = ?";
+            $stmt = $conn->prepare($sql);
+            $stmt->bind_param("i", $user_id);
+            
+            if ($stmt->execute()) {
+                $_SESSION['success'] = "User deleted successfully.";
+            } else {
+                $_SESSION['error'] = "Failed to delete user.";
+            }
         }
     }
     
-    header("Location: products.php");
+    header("Location: users.php");
     exit();
 }
 
-// Fetch all products with their main images
-$sql = "SELECT id, name, price, stock, image_path FROM products ORDER BY created_at DESC";
-$stmt = $conn->prepare($sql);
-if ($stmt) {
-    $stmt->execute();
-    $products = $stmt->get_result();
-} else {
-    $_SESSION['error'] = "Database error: " . $conn->error;
-    $products = false;
-}
+// Fetch all users
+$users = $conn->query("SELECT id, username, email, full_name, is_admin, created_at FROM users ORDER BY created_at DESC");
 ?>
 
 <!DOCTYPE html>
@@ -50,7 +54,7 @@ if ($stmt) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Manage Products - Admin Panel</title>
+    <title>Manage Users - Admin Panel</title>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
@@ -65,6 +69,7 @@ if ($stmt) {
             --info: #1abc9c;
             --dark: #34495e;
             --light: #ecf0f1;
+            --admin-color: #9b59b6;
         }
         
         * {
@@ -215,22 +220,22 @@ if ($stmt) {
             transform: translateX(5px);
         }
         
-        /* Product Image */
-        .product-img {
-            max-width: 80px;
-            max-height: 80px;
-            border-radius: 4px;
-            object-fit: cover;
-            transition: all 0.3s;
+        /* Role Badges */
+        .role-badge {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+            color: white;
         }
         
-        .product-img:hover {
-            transform: scale(1.1);
+        .role-admin {
+            background-color: var(--admin-color);
         }
         
-        .no-image {
-            color: #999;
-            font-style: italic;
+        .role-user {
+            background-color: var(--primary);
         }
         
         /* Buttons */
@@ -262,13 +267,13 @@ if ($stmt) {
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }
         
-        .btn-danger {
-            background-color: var(--danger);
+        .btn-secondary {
+            background-color: var(--dark);
             color: white;
         }
         
-        .btn-danger:hover {
-            background-color: #c0392b;
+        .btn-secondary:hover {
+            background-color: #2c3e50;
             transform: translateY(-2px);
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }
@@ -351,7 +356,7 @@ if ($stmt) {
     <!-- Sidebar Navigation -->
     <div class="sidebar">
         <div class="sidebar-brand">
-            <i class="fas fa-box"></i>
+            <i class="fas fa-users"></i>
             <span>Admin Panel</span>
         </div>
         
@@ -363,7 +368,7 @@ if ($stmt) {
                         <span>Dashboard</span>
                     </a>
                 </li>
-                <li class="active">
+                <li>
                     <a href="products.php">
                         <i class="fas fa-box"></i>
                         <span>Products</span>
@@ -375,7 +380,7 @@ if ($stmt) {
                         <span>Orders</span>
                     </a>
                 </li>
-                <li>
+                <li class="active">
                     <a href="users.php">
                         <i class="fas fa-users"></i>
                         <span>Users</span>
@@ -400,18 +405,8 @@ if ($stmt) {
     <!-- Main Content -->
     <div class="main-content animated">
         <div class="header">
-            <h1>Manage Products</h1>
-            <a href="add_product.php" class="btn btn-primary">
-                <i class="fas fa-plus"></i> Add New Product
-            </a>
+            <h1>Manage Users</h1>
         </div>
-
-        <?php if (isset($_SESSION['error'])): ?>
-            <div class="alert alert-error">
-                <i class="fas fa-exclamation-circle"></i>
-                <?php echo htmlspecialchars($_SESSION['error']); unset($_SESSION['error']); ?>
-            </div>
-        <?php endif; ?>
 
         <?php if (isset($_SESSION['success'])): ?>
             <div class="alert alert-success">
@@ -420,56 +415,60 @@ if ($stmt) {
             </div>
         <?php endif; ?>
 
-        <?php if ($products && $products->num_rows > 0): ?>
+        <?php if (isset($_SESSION['error'])): ?>
+            <div class="alert alert-error">
+                <i class="fas fa-exclamation-circle"></i>
+                <?php echo htmlspecialchars($_SESSION['error']); unset($_SESSION['error']); ?>
+            </div>
+        <?php endif; ?>
+
+        <?php if ($users->num_rows > 0): ?>
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th>Image</th>
                         <th>ID</th>
-                        <th>Name</th>
-                        <th>Price</th>
-                        <th>Stock</th>
+                        <th>Username</th>
+                        <th>Email</th>
+                        <th>Full Name</th>
+                        <th>Role</th>
+                        <th>Joined</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php while ($product = $products->fetch_assoc()): ?>
+                    <?php while ($user = $users->fetch_assoc()): ?>
                         <tr>
+                            <td><?php echo $user['id']; ?></td>
+                            <td><?php echo htmlspecialchars($user['username']); ?></td>
+                            <td><?php echo htmlspecialchars($user['email']); ?></td>
+                            <td><?php echo htmlspecialchars($user['full_name']); ?></td>
                             <td>
-                                <?php if (!empty($product['image_path'])): ?>
-                                    <img src="../<?php echo htmlspecialchars($product['image_path']); ?>" 
-                                         class="product-img"
-                                         alt="<?php echo htmlspecialchars($product['name']); ?>">
-                                <?php else: ?>
-                                    <i class="fas fa-image fa-2x" style="color: #ddd;"></i>
-                                <?php endif; ?>
+                                <span class="role-badge <?php echo $user['is_admin'] ? 'role-admin' : 'role-user'; ?>">
+                                    <?php echo $user['is_admin'] ? 'Admin' : 'User'; ?>
+                                </span>
                             </td>
-                            <td><?php echo htmlspecialchars($product['id']); ?></td>
-                            <td><?php echo htmlspecialchars($product['name']); ?></td>
-                            <td>₹<?php echo number_format($product['price'], 2); ?></td>
-                            <td><?php echo htmlspecialchars($product['stock']); ?></td>
+                            <td><?php echo date('d M Y', strtotime($user['created_at'])); ?></td>
                             <td>
-                                <a href="add_product.php?id=<?php echo htmlspecialchars($product['id']); ?>" 
-                                   class="btn btn-primary">
-                                    <i class="fas fa-edit"></i> Edit
-                                </a>
-                                <a href="products.php?delete=<?php echo htmlspecialchars($product['id']); ?>" 
-                                   class="btn btn-danger" 
-                                   onclick="return confirm('Are you sure you want to delete this product?')">
-                                    <i class="fas fa-trash"></i> Delete
-                                </a>
+                                <?php if (!$user['is_admin'] || $user['id'] == $_SESSION['user_id']): ?>
+                                    <a href="../profile.php" class="btn btn-primary">
+                                        <i class="fas fa-eye"></i> View
+                                    </a>
+                                <?php endif; ?>
+                                <?php if (!$user['is_admin']): ?>
+                                    <a href="users.php?delete=<?php echo $user['id']; ?>" 
+                                       class="btn btn-secondary" 
+                                       onclick="return confirm('Are you sure you want to delete this user?')">
+                                        <i class="fas fa-trash"></i> Delete
+                                    </a>
+                                <?php endif; ?>
                             </td>
                         </tr>
                     <?php endwhile; ?>
                 </tbody>
             </table>
-        <?php elseif ($products && $products->num_rows === 0): ?>
-            <div class="alert alert-info">
-                <i class="fas fa-info-circle"></i> No products found.
-            </div>
         <?php else: ?>
-            <div class="alert alert-error">
-                <i class="fas fa-exclamation-circle"></i> Error loading products. Please try again later.
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle"></i> No users found.
             </div>
         <?php endif; ?>
     </div>
@@ -504,7 +503,7 @@ if ($stmt) {
             const deleteButtons = document.querySelectorAll('[onclick*="confirm"]');
             deleteButtons.forEach(button => {
                 button.addEventListener('click', function(e) {
-                    if (!confirm('Are you sure you want to delete this product?')) {
+                    if (!confirm('Are you sure you want to delete this user?')) {
                         e.preventDefault();
                     }
                 });

@@ -1,5 +1,5 @@
 <?php
-require_once 'includes/config.php';
+require_once '../../../includes/config.php';
 requireAdmin();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['order_id'])) {
@@ -17,7 +17,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['order_id'])) {
     if (!in_array($status, $allowed_statuses)) {
         $_SESSION['error'] = "Invalid status selected";
         // Use one of these formats:
-header("Location: /lakesh/view_order.php?id=".$order_id);  // Absolute path
+header("Location: /lakesh/admin/view_order.php?id=".$order_id);  // Absolute path
         exit();
     }
 
