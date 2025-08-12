@@ -1,4 +1,4 @@
-##Admin Username: Admin1 and password : Admin@123.                     
+## Admin Username: Admin1 and password : Admin@123.                     
 
 # Helmet Management System
 
@@ -57,7 +57,6 @@ The Helmet Management System for **Bike Barbers Helmet Shop**, Dharwad, replaces
 
 ## Limitations
 - No real-time GPS delivery tracking.
-- Limited quantity per order in the current version.
 - No mobile app support (system access limited to shop staff).
 
 ## Scope for Future Enhancement
