@@ -6,13 +6,21 @@ This project is designed to automate and streamline helmet shop operations, incl
 Table of Contents
 
 Introduction
+
 Objectives
+
 Features
+
 Technologies & Libraries Used
+
 System Inputs & Outputs
+
 Limitations
+
 Scope for Future Enhancement
+
 Conclusion
+
 
 Introduction
 
